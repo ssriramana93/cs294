@@ -126,7 +126,18 @@ def learn(env,
     # q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
     # Older versions of TensorFlow may require using "VARIABLES" instead of "GLOBAL_VARIABLES"
     ######
-    
+    q_curr = q_func(obs_t_float, num_actions, scope = "q_func", reuse = False)
+    q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
+
+    target_q_next = q_func(obs_tp1_float, num_actions, scope = "target_q_func", reuse = False)
+    target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_q_func')
+
+
+
+
+    y = rew_t_ph + gamma*tf.multiply(tf.reduce_max(target_q_next, axis = 1), done_mask_ph)
+    total_error = tf.reduce_sum(tf.square(y - q_curr))
+
     # YOUR CODE HERE
 
     ######
@@ -193,7 +204,20 @@ def learn(env,
         # might as well be random, since you haven't trained your net...)
 
         #####
-        
+
+
+        idx = replay_buffer.store_frame(last_obs)
+        obs = replay_buffer.encode_recent_observation()
+        r = random.uniform(0, 1)
+        if r > exploration.value(t) and model_initialized:
+            q_val = session.run(q_curr, feed_dict={obs_t_ph: np.expand_dims(obs, axis = 0)})
+            action = np.argmax(q_val)
+        else:
+            action = np.random.randint(0, num_actions, 1)
+        last_obs, reward, done, info = env.step(action)
+        replay_buffer.store_effect(idx,action,reward,done)
+        if done:
+            last_obs = env.reset()
         # YOUR CODE HERE
 
         #####
@@ -243,6 +267,17 @@ def learn(env,
             # you should update every target_update_freq steps, and you may find the
             # variable num_param_updates useful for this (it was initialized to 0)
             #####
+            obs_batch, act_batch, rew_batch, next_obs_batch, done_mask = replay_buffer.sample()
+            if not model_initialized:
+                initialize_interdependent_variables(session, tf.global_variables(), {
+                            obs_t_ph: obs_batch,
+                            obs_tp1_ph: next_obs_batch,
+                        })
+                model_initialized = True
+            session.run(train_fn, feed_dict={obs_t_ph: obs_batch, act_batch: act_batch, rew_t_ph: rew_batch, obs_tp1_ph: next_obs_batch, done_mask_ph: done_mask})
+            num_param_updates += 1
+            if (num_param_updates % target_update_freq):
+                session.run(update_target_fn)
             
             # YOUR CODE HERE
 
