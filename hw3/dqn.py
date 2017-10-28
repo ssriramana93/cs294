@@ -132,18 +132,19 @@ def learn(env,
     target_q_next = q_func(obs_tp1_float, num_actions, scope = "target_q_func", reuse = False)
     target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_q_func')
 
+    onehot = tf.one_hot(act_t_ph, num_actions)  
 
 
-
-    y = rew_t_ph + gamma*tf.multiply(tf.reduce_max(target_q_next, axis = 1), done_mask_ph)
-    total_error = tf.reduce_sum(tf.square(y - q_curr))
+    y = rew_t_ph + gamma*tf.multiply(tf.reduce_max(target_q_next, axis = 1), (1.0 - done_mask_ph))
+#    total_error = tf.reduce_sum(tf.square(y - tf.reduce_max(q_curr, axis = 1)))
+    total_error = tf.reduce_mean(huber_loss(tf.subtract(target_q_next, tf.reduce_sum(tf.multiply(q_curr, onehot),axis=1))))  
 
     # YOUR CODE HERE
 
     ######
 
     # construct optimization op (with gradient clipping)
-    learning_rate = tf.placeholder(tf.float32, (), name="learning_rate")
+    learning_rate = tf.placeholder(tf.float32,  name="learning_rate")
     optimizer = optimizer_spec.constructor(learning_rate=learning_rate, **optimizer_spec.kwargs)
     train_fn = minimize_and_clip(optimizer, total_error,
                  var_list=q_func_vars, clip_val=grad_norm_clipping)
@@ -267,18 +268,21 @@ def learn(env,
             # you should update every target_update_freq steps, and you may find the
             # variable num_param_updates useful for this (it was initialized to 0)
             #####
-            obs_batch, act_batch, rew_batch, next_obs_batch, done_mask = replay_buffer.sample()
+            obs_batch, act_batch, rew_batch, next_obs_batch, done_mask = replay_buffer.sample(batch_size)
             if not model_initialized:
                 initialize_interdependent_variables(session, tf.global_variables(), {
                             obs_t_ph: obs_batch,
                             obs_tp1_ph: next_obs_batch,
                         })
                 model_initialized = True
-            session.run(train_fn, feed_dict={obs_t_ph: obs_batch, act_batch: act_batch, rew_t_ph: rew_batch, obs_tp1_ph: next_obs_batch, done_mask_ph: done_mask})
-            num_param_updates += 1
-            if (num_param_updates % target_update_freq):
+         #   print (obs_batch.shape, act_batch.shape, rew_batch.shape, next_obs_batch.shape, done_mask.shape)
+            session.run(train_fn, feed_dict={obs_t_ph: obs_batch, act_t_ph: act_batch, rew_t_ph: rew_batch, obs_tp1_ph: next_obs_batch, done_mask_ph: done_mask, learning_rate: optimizer_spec.lr_schedule.value(t)})
+            
+            
+            if (not (num_param_updates % target_update_freq)):
                 session.run(update_target_fn)
             
+            num_param_updates += 1
             # YOUR CODE HERE
 
             #####
